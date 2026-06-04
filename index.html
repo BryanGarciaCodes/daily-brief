@@ -1,0 +1,876 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0"/>
+<title>Daily Brief — Ray-Ban HUD</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@300;400;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:       #06080a;
+  --amber:    #ffb300;
+  --amber2:   #ff8f00;
+  --amber-dim:#7a5500;
+  --amber-faint:#1e1400;
+  --green:    #69ff47;
+  --red:      #ff4444;
+  --blue:     #40c4ff;
+  --text:     #ffe082;
+  --text-dim: #8a6a20;
+  --text-hi:  #fff8e1;
+  --surface:  rgba(255,179,0,0.04);
+  --border:   rgba(255,179,0,0.12);
+  --border2:  rgba(255,179,0,0.22);
+  --mono:     'Share Tech Mono', monospace;
+  --display:  'Rajdhani', sans-serif;
+  --glow:     0 0 24px rgba(255,179,0,0.18);
+  --glow-sm:  0 0 10px rgba(255,179,0,0.25);
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  height: 100%; min-height: 100svh;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--display);
+  overflow-x: hidden;
+}
+
+/* ── SCANLINE + GRAIN OVERLAY ── */
+body::before {
+  content:'';
+  position:fixed; inset:0;
+  background: repeating-linear-gradient(
+    0deg, transparent, transparent 3px,
+    rgba(255,179,0,0.018) 3px, rgba(255,179,0,0.018) 4px
+  );
+  pointer-events:none; z-index:9998;
+}
+body::after {
+  content:'';
+  position:fixed; inset:0;
+  background: radial-gradient(ellipse 120% 80% at 50% 10%,
+    rgba(255,179,0,0.07) 0%, transparent 65%);
+  pointer-events:none; z-index:0;
+}
+
+/* ── CORNER BRACKETS ── */
+.hud-frame {
+  position:fixed; inset:0;
+  pointer-events:none; z-index:9997;
+}
+.hud-frame::before, .hud-frame::after,
+.hud-frame span::before, .hud-frame span::after {
+  content:'';
+  position:absolute;
+  width:22px; height:22px;
+  border-color: var(--amber);
+  border-style: solid;
+  opacity:0.45;
+}
+.hud-frame::before  { top:10px; left:10px;  border-width:2px 0 0 2px; }
+.hud-frame::after   { top:10px; right:10px; border-width:2px 2px 0 0; }
+.hud-frame span::before { bottom:10px; left:10px;  border-width:0 0 2px 2px; }
+.hud-frame span::after  { bottom:10px; right:10px; border-width:0 2px 2px 0; }
+
+/* ── LAYOUT ── */
+#app {
+  position:relative; z-index:1;
+  display:flex; flex-direction:column;
+  min-height:100svh;
+  padding: 20px 16px 20px;
+  gap: 12px;
+  max-width: 480px;
+  margin: 0 auto;
+}
+
+/* ── HEADER ROW ── */
+.hud-header {
+  display:flex; justify-content:space-between; align-items:center;
+  animation: fadeSlide 0.5s ease both;
+}
+
+.hud-badge {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  color: var(--amber-dim);
+  display:flex; align-items:center; gap:6px;
+}
+.hud-badge .live-dot {
+  width:6px; height:6px; border-radius:50%;
+  background: var(--green);
+  box-shadow: 0 0 8px var(--green);
+  animation: pulse 2.4s infinite;
+}
+
+.hud-status {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--amber-dim);
+  letter-spacing:0.1em;
+}
+
+/* ── CLOCK BLOCK ── */
+.clock-block {
+  text-align:center;
+  animation: fadeSlide 0.5s 0.05s ease both;
+}
+
+.clock-time {
+  font-family: var(--display);
+  font-size: clamp(64px, 18vw, 88px);
+  font-weight: 700;
+  color: var(--amber);
+  letter-spacing: -2px;
+  line-height: 1;
+  text-shadow: 0 0 40px rgba(255,179,0,0.4), 0 0 80px rgba(255,179,0,0.15);
+}
+
+.clock-colon {
+  animation: blink 1s step-end infinite;
+}
+
+.clock-sub {
+  display:flex; justify-content:center; align-items:center; gap:16px;
+  margin-top:4px;
+}
+
+.clock-date {
+  font-family: var(--mono);
+  font-size:13px;
+  color: var(--text-dim);
+  letter-spacing:0.1em;
+}
+
+.clock-seconds {
+  font-family: var(--mono);
+  font-size:13px;
+  color: var(--amber-dim);
+}
+
+/* ── DIVIDER ── */
+.hud-divider {
+  height:1px;
+  background: linear-gradient(90deg,
+    transparent, var(--border2) 30%, var(--border2) 70%, transparent);
+  position:relative;
+  animation: fadeSlide 0.5s 0.1s ease both;
+}
+.hud-divider::after {
+  content:'';
+  position:absolute; left:50%; top:50%;
+  transform:translate(-50%,-50%);
+  width:5px; height:5px; border-radius:50%;
+  background:var(--amber);
+  box-shadow: var(--glow-sm);
+}
+
+/* ── WEATHER CARD ── */
+.weather-card {
+  background: var(--surface);
+  border:1px solid var(--border);
+  border-radius:8px;
+  padding:14px 18px;
+  display:flex; justify-content:space-between; align-items:center;
+  gap:12px;
+  animation: fadeSlide 0.5s 0.15s ease both;
+  cursor:pointer;
+  transition: border-color 0.2s;
+}
+.weather-card:hover { border-color:var(--border2); }
+
+.weather-left {}
+
+.weather-temp {
+  font-size:38px; font-weight:700;
+  color:var(--text-hi); line-height:1;
+}
+
+.weather-desc {
+  font-size:13px; color:var(--text-dim);
+  font-family:var(--mono); margin-top:2px;
+  text-transform:uppercase; letter-spacing:0.08em;
+}
+
+.weather-right {
+  text-align:right;
+  display:flex; flex-direction:column; gap:4px;
+  align-items:flex-end;
+}
+
+.weather-icon { font-size:34px; line-height:1; }
+
+.weather-detail {
+  font-family:var(--mono); font-size:11px; color:var(--text-dim);
+}
+
+.weather-location {
+  font-family:var(--mono); font-size:10px;
+  color:var(--amber-dim); letter-spacing:0.08em;
+}
+
+.weather-loading {
+  font-family:var(--mono); font-size:12px;
+  color:var(--text-dim); width:100%; text-align:center;
+  animation: pulse 1.5s infinite;
+}
+
+/* ── TASKS ── */
+.tasks-block {
+  background: var(--surface);
+  border:1px solid var(--border);
+  border-radius:8px;
+  overflow:hidden;
+  animation: fadeSlide 0.5s 0.2s ease both;
+}
+
+.tasks-header {
+  display:flex; justify-content:space-between; align-items:center;
+  padding:10px 16px;
+  border-bottom:1px solid var(--border);
+}
+
+.tasks-label {
+  font-family:var(--mono); font-size:10px;
+  letter-spacing:0.15em; color:var(--amber-dim);
+  text-transform:uppercase;
+}
+
+.tasks-count {
+  font-family:var(--mono); font-size:10px; color:var(--text-dim);
+}
+
+.task-list { display:flex; flex-direction:column; }
+
+.task-item {
+  display:flex; align-items:center; gap:12px;
+  padding:12px 16px;
+  border-bottom:1px solid var(--border);
+  cursor:pointer;
+  transition: background 0.15s;
+}
+.task-item:last-child { border-bottom:none; }
+.task-item:hover { background: rgba(255,179,0,0.04); }
+
+.task-check {
+  width:18px; height:18px; border-radius:3px;
+  border:1.5px solid var(--amber-dim);
+  flex-shrink:0; display:flex; align-items:center; justify-content:center;
+  transition: all 0.15s;
+  font-size:11px;
+}
+.task-item.done .task-check {
+  background:var(--amber); border-color:var(--amber);
+  color:#060808;
+}
+
+.task-text {
+  font-size:16px; font-weight:400;
+  color:var(--text-hi); flex:1;
+  transition: opacity 0.2s;
+}
+.task-item.done .task-text {
+  opacity:0.35; text-decoration:line-through;
+  text-decoration-color: var(--amber-dim);
+}
+
+.task-priority {
+  width:6px; height:6px; border-radius:50%; flex-shrink:0;
+}
+
+.task-add-row {
+  display:flex; gap:8px; padding:10px 12px;
+  border-top:1px solid var(--border);
+}
+
+.task-add-input {
+  flex:1; background:transparent; border:1px solid var(--border);
+  border-radius:5px; color:var(--text); font-family:var(--display);
+  font-size:15px; padding:8px 12px; outline:none;
+  transition:border-color 0.15s;
+}
+.task-add-input::placeholder { color:var(--amber-dim); font-size:13px; }
+.task-add-input:focus { border-color:var(--border2); }
+
+.task-add-btn {
+  background:var(--amber-faint); border:1px solid var(--border2);
+  color:var(--amber); font-family:var(--mono); font-size:18px;
+  width:36px; height:36px; border-radius:5px; cursor:pointer;
+  display:flex; align-items:center; justify-content:center;
+  transition:all 0.15s; flex-shrink:0;
+}
+.task-add-btn:hover { background:var(--amber); color:#060808; }
+
+/* ── QUOTE ── */
+.quote-block {
+  background:var(--surface); border:1px solid var(--border);
+  border-radius:8px; padding:16px 18px;
+  animation: fadeSlide 0.5s 0.25s ease both;
+  position:relative; overflow:hidden;
+}
+.quote-block::before {
+  content:'"'; position:absolute; top:-10px; left:10px;
+  font-size:80px; color:rgba(255,179,0,0.05);
+  font-family:Georgia, serif; line-height:1;
+  pointer-events:none;
+}
+
+.quote-label {
+  font-family:var(--mono); font-size:10px;
+  letter-spacing:0.15em; color:var(--amber-dim);
+  margin-bottom:8px; text-transform:uppercase;
+}
+
+.quote-text {
+  font-size:16px; font-weight:400; line-height:1.6;
+  color:var(--text-hi); font-style:italic;
+  min-height:44px;
+}
+
+.quote-author {
+  font-family:var(--mono); font-size:11px;
+  color:var(--text-dim); margin-top:8px;
+  letter-spacing:0.06em;
+}
+
+.quote-refresh {
+  position:absolute; top:12px; right:12px;
+  background:transparent; border:1px solid var(--border);
+  color:var(--text-dim); width:28px; height:28px;
+  border-radius:4px; cursor:pointer; font-size:14px;
+  display:flex; align-items:center; justify-content:center;
+  transition:all 0.15s;
+}
+.quote-refresh:hover { border-color:var(--amber); color:var(--amber); }
+.quote-refresh.spinning { animation:spin 0.5s ease; }
+
+/* ── FOOTER ── */
+.hud-footer {
+  display:flex; justify-content:space-between;
+  padding-bottom:4px;
+  animation: fadeSlide 0.5s 0.3s ease both;
+}
+
+.footer-stat {
+  font-family:var(--mono); font-size:10px;
+  color:var(--amber-dim); letter-spacing:0.08em;
+}
+
+/* ── SETTINGS PANEL ── */
+.settings-overlay {
+  position:fixed; inset:0; background:rgba(6,8,10,0.92);
+  backdrop-filter:blur(6px); z-index:500;
+  display:flex; align-items:flex-end; justify-content:center;
+  animation:fadeIn 0.2s ease;
+}
+.settings-overlay.hidden { display:none; }
+
+.settings-panel {
+  background:#0d1014; border:1px solid var(--border2);
+  border-radius:12px 12px 0 0; padding:24px 20px 32px;
+  width:100%; max-width:480px;
+  animation:slideUp 0.25s ease;
+}
+
+.settings-title {
+  font-family:var(--mono); font-size:12px;
+  letter-spacing:0.15em; color:var(--amber-dim);
+  text-transform:uppercase; margin-bottom:18px;
+  display:flex; justify-content:space-between; align-items:center;
+}
+
+.settings-close {
+  background:transparent; border:1px solid var(--border);
+  color:var(--text-dim); width:28px; height:28px;
+  border-radius:4px; cursor:pointer; font-size:14px;
+}
+.settings-close:hover { color:var(--text); }
+
+.settings-group { margin-bottom:16px; display:flex; flex-direction:column; gap:6px; }
+
+.settings-label {
+  font-family:var(--mono); font-size:10px;
+  letter-spacing:0.1em; color:var(--text-dim);
+  text-transform:uppercase;
+}
+
+.settings-input {
+  background:rgba(255,179,0,0.04); border:1px solid var(--border);
+  border-radius:5px; color:var(--text-hi); font-family:var(--mono);
+  font-size:14px; padding:10px 14px; outline:none; width:100%;
+  transition:border-color 0.15s;
+}
+.settings-input:focus { border-color:var(--border2); }
+.settings-input::placeholder { color:var(--amber-dim); }
+
+.settings-hint {
+  font-size:11px; color:var(--amber-dim); font-family:var(--mono);
+  font-style:italic;
+}
+
+.settings-btn {
+  background:var(--amber); color:#060808;
+  font-family:var(--mono); font-size:13px; font-weight:700;
+  letter-spacing:0.08em; border:none; border-radius:6px;
+  padding:12px; cursor:pointer; width:100%; margin-top:8px;
+  transition:all 0.15s;
+}
+.settings-btn:hover { background:#ffc933; }
+
+/* ── GEAR BUTTON ── */
+.gear-btn {
+  position:fixed; bottom:20px; right:16px; z-index:100;
+  background:var(--amber-faint); border:1px solid var(--border2);
+  color:var(--amber); width:40px; height:40px;
+  border-radius:8px; cursor:pointer; font-size:18px;
+  display:flex; align-items:center; justify-content:center;
+  transition:all 0.15s;
+}
+.gear-btn:hover { background:rgba(255,179,0,0.12); }
+
+/* ── ANIMATIONS ── */
+@keyframes fadeSlide {
+  from { opacity:0; transform:translateY(8px); }
+  to   { opacity:1; transform:translateY(0); }
+}
+@keyframes fadeIn {
+  from { opacity:0; } to { opacity:1; }
+}
+@keyframes slideUp {
+  from { transform:translateY(40px); opacity:0; }
+  to   { transform:translateY(0); opacity:1; }
+}
+@keyframes pulse {
+  0%,100% { opacity:1; } 50% { opacity:0.3; }
+}
+@keyframes blink {
+  0%,100% { opacity:1; } 50% { opacity:0.15; }
+}
+@keyframes spin {
+  from { transform:rotate(0deg); } to { transform:rotate(360deg); }
+}
+
+/* ── SCROLLBAR ── */
+::-webkit-scrollbar { width:3px; }
+::-webkit-scrollbar-thumb { background:var(--border2); border-radius:3px; }
+</style>
+</head>
+<body>
+
+<div class="hud-frame"><span></span></div>
+
+<button class="gear-btn" id="gear-btn" title="Settings" aria-label="Open settings">⚙</button>
+
+<!-- SETTINGS PANEL -->
+<div class="settings-overlay hidden" id="settings-overlay">
+  <div class="settings-panel">
+    <div class="settings-title">
+      HUD Settings
+      <button class="settings-close" id="settings-close">✕</button>
+    </div>
+    <div class="settings-group">
+      <div class="settings-label">Your Name</div>
+      <input class="settings-input" id="s-name" placeholder="e.g. Alex" maxlength="30"/>
+    </div>
+    <div class="settings-group">
+      <div class="settings-label">City (for weather)</div>
+      <input class="settings-input" id="s-city" placeholder="e.g. Miami"/>
+      <div class="settings-hint">Uses Open-Meteo (free, no API key needed)</div>
+    </div>
+    <div class="settings-group">
+      <div class="settings-label">Top 3 Daily Tasks</div>
+      <input class="settings-input" id="s-t1" placeholder="Task 1" maxlength="60"/>
+      <input class="settings-input" id="s-t2" placeholder="Task 2" maxlength="60" style="margin-top:6px"/>
+      <input class="settings-input" id="s-t3" placeholder="Task 3" maxlength="60" style="margin-top:6px"/>
+    </div>
+    <button class="settings-btn" id="settings-save">Save & Update HUD</button>
+  </div>
+</div>
+
+<!-- MAIN APP -->
+<div id="app">
+
+  <!-- HEADER -->
+  <div class="hud-header">
+    <div class="hud-badge">
+      <span class="live-dot"></span>
+      DAILY BRIEF · HUD
+    </div>
+    <div class="hud-status" id="hud-status">SYS READY</div>
+  </div>
+
+  <!-- CLOCK -->
+  <div class="clock-block">
+    <div class="clock-time">
+      <span id="clock-h">--</span><span class="clock-colon">:</span><span id="clock-m">--</span>
+    </div>
+    <div class="clock-sub">
+      <span class="clock-date" id="clock-date">--- -- ----</span>
+      <span class="clock-seconds" id="clock-s">--s</span>
+    </div>
+  </div>
+
+  <div class="hud-divider"></div>
+
+  <!-- WEATHER -->
+  <div class="weather-card" id="weather-card" title="Click to refresh weather">
+    <div class="weather-loading" id="weather-loading">Locating weather data…</div>
+    <div id="weather-content" style="display:none; width:100%; display:none; justify-content:space-between; align-items:center; gap:12px;">
+      <div class="weather-left">
+        <div class="weather-temp" id="w-temp">--°</div>
+        <div class="weather-desc" id="w-desc">---</div>
+        <div class="weather-location" id="w-loc">---, ---</div>
+      </div>
+      <div class="weather-right">
+        <div class="weather-icon" id="w-icon">🌤</div>
+        <div class="weather-detail" id="w-wind">Wind: --</div>
+        <div class="weather-detail" id="w-humid">Humidity: --</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TASKS -->
+  <div class="tasks-block">
+    <div class="tasks-header">
+      <span class="tasks-label">Today's Focus</span>
+      <span class="tasks-count" id="tasks-count">0 / 0</span>
+    </div>
+    <div class="task-list" id="task-list"></div>
+    <div class="task-add-row">
+      <input class="task-add-input" id="task-input" placeholder="+ Quick task…" maxlength="60"/>
+      <button class="task-add-btn" id="task-add-btn" aria-label="Add task">+</button>
+    </div>
+  </div>
+
+  <!-- QUOTE -->
+  <div class="quote-block">
+    <div class="quote-label">Daily Signal</div>
+    <button class="quote-refresh" id="quote-refresh" aria-label="New quote">↻</button>
+    <div class="quote-text" id="quote-text">Loading…</div>
+    <div class="quote-author" id="quote-author"></div>
+  </div>
+
+  <!-- FOOTER -->
+  <div class="hud-footer">
+    <span class="footer-stat" id="footer-greeting">GOOD MORNING</span>
+    <span class="footer-stat" id="footer-tasks-done">0 TASKS DONE</span>
+  </div>
+
+</div>
+
+<script>
+'use strict';
+
+// ─── STORAGE ─────────────────────────────────────────────────────────────────
+const S = {
+  get: k => { try { return JSON.parse(localStorage.getItem('hud_' + k)); } catch { return null; } },
+  set: (k,v) => { try { localStorage.setItem('hud_' + k, JSON.stringify(v)); } catch {} },
+};
+
+// ─── STATE ───────────────────────────────────────────────────────────────────
+let tasks   = S.get('tasks')   || [];
+let config  = S.get('config')  || { name: '', city: '' };
+let weather = S.get('weather') || null;
+let weatherTs = S.get('weather_ts') || 0;
+let quoteIdx = 0;
+
+// ─── QUOTES ──────────────────────────────────────────────────────────────────
+const QUOTES = [
+  { text: "What you do today is important because you are exchanging a day of your life for it.", author: "— Anonymous" },
+  { text: "The secret of getting ahead is getting started.", author: "— Mark Twain" },
+  { text: "Done is better than perfect.", author: "— Sheryl Sandberg" },
+  { text: "Energy flows where attention goes.", author: "— Tony Robbins" },
+  { text: "Small steps every day compound into extraordinary results.", author: "— James Clear" },
+  { text: "The best time to start was yesterday. The next best time is now.", author: "— Anonymous" },
+  { text: "Focus is the art of knowing what to ignore.", author: "— Anonymous" },
+  { text: "You don't rise to the level of your goals, you fall to the level of your systems.", author: "— James Clear" },
+  { text: "Act as if what you do makes a difference. It does.", author: "— William James" },
+  { text: "Clarity about what matters provides clarity about what does not.", author: "— Cal Newport" },
+  { text: "The quality of your life is determined by the quality of your questions.", author: "— Tony Robbins" },
+  { text: "One day or day one — you decide.", author: "— Anonymous" },
+];
+
+// ─── CLOCK ───────────────────────────────────────────────────────────────────
+function updateClock() {
+  const now = new Date();
+  const h = now.getHours();
+  const m = String(now.getMinutes()).padStart(2,'0');
+  const s = String(now.getSeconds()).padStart(2,'0');
+  const h12 = String(h % 12 || 12).padStart(2,'0');
+  document.getElementById('clock-h').textContent = h12;
+  document.getElementById('clock-m').textContent = m;
+  document.getElementById('clock-s').textContent = s + 's';
+
+  const days   = ['SUN','MON','TUE','WED','THU','FRI','SAT'];
+  const months = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+  document.getElementById('clock-date').textContent =
+    `${days[now.getDay()]} ${String(now.getDate()).padStart(2,'0')} ${months[now.getMonth()]} ${now.getFullYear()}`;
+
+  const greetings = [[5,'EARLY RISER'],[12,'GOOD MORNING'],[17,'GOOD AFTERNOON'],[21,'GOOD EVENING'],[24,'NIGHT OWL']];
+  const g = greetings.find(([hh]) => h < hh);
+  const name = config.name ? ` · ${config.name.toUpperCase()}` : '';
+  document.getElementById('footer-greeting').textContent = (g ? g[1] : 'HELLO') + name;
+}
+
+// ─── WEATHER ─────────────────────────────────────────────────────────────────
+const WMO_CODES = {
+  0:'Clear Sky',1:'Mostly Clear',2:'Partly Cloudy',3:'Overcast',
+  45:'Foggy',48:'Icy Fog',
+  51:'Light Drizzle',53:'Drizzle',55:'Heavy Drizzle',
+  61:'Light Rain',63:'Rain',65:'Heavy Rain',
+  71:'Light Snow',73:'Snow',75:'Heavy Snow',77:'Snow Grains',
+  80:'Showers',81:'Rain Showers',82:'Violent Showers',
+  85:'Snow Showers',86:'Heavy Snow Showers',
+  95:'Thunderstorm',96:'Thunderstorm & Hail',99:'Severe Thunderstorm',
+};
+const WMO_ICONS = {
+  0:'☀️',1:'🌤',2:'⛅',3:'☁️',45:'🌫',48:'🌫',
+  51:'🌦',53:'🌧',55:'🌧',61:'🌦',63:'🌧',65:'⛈',
+  71:'🌨',73:'❄️',75:'❄️',77:'🌨',80:'🌧',81:'⛈',82:'⛈',
+  85:'🌨',86:'❄️',95:'⛈',96:'⛈',99:'⛈',
+};
+
+async function geocode(city) {
+  const url = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(city)}&count=1&language=en&format=json`;
+  const r = await fetch(url);
+  const d = await r.json();
+  if (!d.results?.length) throw new Error('City not found');
+  return { lat: d.results[0].latitude, lon: d.results[0].longitude, name: d.results[0].name, country: d.results[0].country_code };
+}
+
+async function fetchWeatherByCoords(lat, lon, label) {
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m&temperature_unit=fahrenheit&wind_speed_unit=mph&timezone=auto`;
+  const r = await fetch(url);
+  const d = await r.json();
+  const c = d.current;
+  return {
+    temp: Math.round(c.temperature_2m),
+    humid: c.relative_humidity_2m,
+    wind: Math.round(c.wind_speed_10m),
+    code: c.weather_code,
+    label,
+  };
+}
+
+async function loadWeather(force = false) {
+  const now = Date.now();
+  const CACHE = 10 * 60 * 1000; // 10 min cache
+
+  if (!force && weather && (now - weatherTs) < CACHE) {
+    renderWeather(weather);
+    return;
+  }
+
+  showWeatherLoading('Fetching weather…');
+
+  try {
+    let data;
+    if (config.city) {
+      const geo = await geocode(config.city);
+      data = await fetchWeatherByCoords(geo.lat, geo.lon, `${geo.name}, ${geo.country}`);
+    } else {
+      // Geolocation fallback
+      const pos = await new Promise((res, rej) =>
+        navigator.geolocation
+          ? navigator.geolocation.getCurrentPosition(res, rej, { timeout: 6000 })
+          : rej(new Error('No geo'))
+      );
+      data = await fetchWeatherByCoords(
+        pos.coords.latitude, pos.coords.longitude, 'Your Location'
+      );
+    }
+    weather = data;
+    S.set('weather', data);
+    S.set('weather_ts', now);
+    weatherTs = now;
+    renderWeather(data);
+  } catch (e) {
+    showWeatherLoading('Weather unavailable — set city in ⚙ Settings');
+  }
+}
+
+function showWeatherLoading(msg) {
+  document.getElementById('weather-loading').style.display = 'block';
+  document.getElementById('weather-loading').textContent = msg;
+  document.getElementById('weather-content').style.display = 'none';
+}
+
+function renderWeather(d) {
+  document.getElementById('weather-loading').style.display = 'none';
+  const wc = document.getElementById('weather-content');
+  wc.style.display = 'flex';
+  document.getElementById('w-temp').textContent  = `${d.temp}°F`;
+  document.getElementById('w-desc').textContent  = WMO_CODES[d.code] || 'Unknown';
+  document.getElementById('w-loc').textContent   = d.label;
+  document.getElementById('w-icon').textContent  = WMO_ICONS[d.code] || '🌡';
+  document.getElementById('w-wind').textContent  = `Wind: ${d.wind} mph`;
+  document.getElementById('w-humid').textContent = `Humidity: ${d.humid}%`;
+  document.getElementById('hud-status').textContent = 'ALL SYSTEMS GO';
+}
+
+// ─── TASKS ───────────────────────────────────────────────────────────────────
+function renderTasks() {
+  const list = document.getElementById('task-list');
+  list.innerHTML = '';
+
+  const colors = ['var(--amber)','var(--blue)','var(--green)'];
+  const done   = tasks.filter(t => t.done).length;
+  document.getElementById('tasks-count').textContent = `${done} / ${tasks.length}`;
+  document.getElementById('footer-tasks-done').textContent = `${done} TASK${done !== 1 ? 'S' : ''} DONE`;
+
+  tasks.forEach((t, i) => {
+    const row = document.createElement('div');
+    row.className = 'task-item' + (t.done ? ' done' : '');
+
+    const check = document.createElement('div');
+    check.className = 'task-check';
+    check.textContent = t.done ? '✓' : '';
+
+    const text = document.createElement('div');
+    text.className = 'task-text';
+    text.textContent = t.text;
+
+    const dot = document.createElement('div');
+    dot.className = 'task-priority';
+    dot.style.background = colors[i % colors.length];
+    if (!t.done) dot.style.boxShadow = `0 0 5px ${colors[i % colors.length]}`;
+
+    row.appendChild(check);
+    row.appendChild(text);
+    row.appendChild(dot);
+
+    row.addEventListener('click', () => {
+      tasks[i].done = !tasks[i].done;
+      S.set('tasks', tasks);
+      renderTasks();
+    });
+
+    list.appendChild(row);
+  });
+}
+
+function addTask(text) {
+  if (!text.trim()) return;
+  tasks.push({ text: text.trim(), done: false, id: Date.now() });
+  S.set('tasks', tasks);
+  renderTasks();
+}
+
+// ─── QUOTE ───────────────────────────────────────────────────────────────────
+function showQuote(idx) {
+  const q = QUOTES[idx % QUOTES.length];
+  document.getElementById('quote-text').textContent   = q.text;
+  document.getElementById('quote-author').textContent = q.author;
+}
+
+function nextQuote() {
+  quoteIdx = (quoteIdx + 1) % QUOTES.length;
+  showQuote(quoteIdx);
+  const btn = document.getElementById('quote-refresh');
+  btn.classList.add('spinning');
+  setTimeout(() => btn.classList.remove('spinning'), 500);
+}
+
+// ─── SETTINGS ────────────────────────────────────────────────────────────────
+function openSettings() {
+  document.getElementById('s-name').value = config.name || '';
+  document.getElementById('s-city').value = config.city || '';
+  const defaultTasks = ['', '', ''];
+  tasks.slice(0,3).forEach((t,i) => defaultTasks[i] = t.text);
+  for (let i=1;i<=3;i++) {
+    const el = document.getElementById('s-t'+i);
+    if (el) el.value = defaultTasks[i-1] || '';
+  }
+  document.getElementById('settings-overlay').classList.remove('hidden');
+}
+
+function saveSettings() {
+  config.name = document.getElementById('s-name').value.trim();
+  config.city = document.getElementById('s-city').value.trim();
+  S.set('config', config);
+
+  // Replace top 3 tasks
+  const newTasks = [];
+  for (let i=1;i<=3;i++) {
+    const v = document.getElementById('s-t'+i).value.trim();
+    if (v) newTasks.push({ text: v, done: false, id: Date.now() + i });
+  }
+  // Keep any quick-added tasks beyond the 3
+  const extras = tasks.slice(3).filter(t => t.text);
+  tasks = [...newTasks, ...extras];
+  S.set('tasks', tasks);
+
+  document.getElementById('settings-overlay').classList.add('hidden');
+  renderTasks();
+  loadWeather(true);
+}
+
+// ─── SEED TASKS ──────────────────────────────────────────────────────────────
+function seedTasksIfEmpty() {
+  if (tasks.length === 0) {
+    tasks = [
+      { text: 'Check in with someone today', done: false, id: 1 },
+      { text: 'Get 20 minutes outside',       done: false, id: 2 },
+      { text: 'Drink 8 glasses of water',      done: false, id: 3 },
+    ];
+    S.set('tasks', tasks);
+  }
+}
+
+// ─── INIT ─────────────────────────────────────────────────────────────────────
+function init() {
+  seedTasksIfEmpty();
+
+  // Clock — tick every second
+  updateClock();
+  setInterval(updateClock, 1000);
+
+  // Tasks
+  renderTasks();
+
+  // Quote — pick daily one based on day of year
+  const dayOfYear = Math.floor((Date.now() - new Date(new Date().getFullYear(),0,0)) / 86400000);
+  quoteIdx = dayOfYear % QUOTES.length;
+  showQuote(quoteIdx);
+
+  // Weather
+  loadWeather();
+
+  // Refresh weather every 10 min
+  setInterval(() => loadWeather(), 10 * 60 * 1000);
+
+  // Events
+  document.getElementById('weather-card').addEventListener('click', () => loadWeather(true));
+  document.getElementById('quote-refresh').addEventListener('click', nextQuote);
+  document.getElementById('gear-btn').addEventListener('click', openSettings);
+  document.getElementById('settings-close').addEventListener('click', () =>
+    document.getElementById('settings-overlay').classList.add('hidden'));
+  document.getElementById('settings-save').addEventListener('click', saveSettings);
+  document.getElementById('settings-overlay').addEventListener('click', e => {
+    if (e.target === document.getElementById('settings-overlay'))
+      document.getElementById('settings-overlay').classList.add('hidden');
+  });
+
+  const addBtn = document.getElementById('task-add-btn');
+  const addInput = document.getElementById('task-input');
+  addBtn.addEventListener('click', () => {
+    addTask(addInput.value);
+    addInput.value = '';
+  });
+  addInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { addTask(addInput.value); addInput.value = ''; }
+  });
+
+  // First run → open settings if no config
+  if (!config.name && !config.city) {
+    setTimeout(openSettings, 800);
+  }
+}
+
+init();
+</script>
+</body>
+</html>
